@@ -7,7 +7,7 @@ Built on [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js) and t
 ## Table of Contents
 
 - [Quick Start](#quick-start)
-- [Authentication](#authentication)
+- [How It Works](#how-it-works)
 - [MCP Setup](#mcp-setup)
 - [Permissions](#permissions)
 - [Tools](#tools)
@@ -24,14 +24,41 @@ node src/index.js  # Opens browser with QR code
 
 Scan the QR with WhatsApp (Settings > Linked Devices > Link a Device).
 
-## Authentication
+## How It Works
 
-Session stored in `~/.config/zappy-mcp/auth/` - shared across all configs. Scan once per machine.
+This server uses [whatsapp-web.js](https://github.com/pedroslopez/whatsapp-web.js), which runs a headless Chromium browser via Puppeteer to connect to WhatsApp Web. There's no official WhatsApp API for personal accounts, so this library automates the web interface.
 
-To re-authenticate:
-```bash
-rm -rf ~/.config/zappy-mcp/auth && node src/index.js
+### Authentication Flow
+
+1. **First run**: The server launches headless Chromium and opens WhatsApp Web
+2. **QR code**: A browser window opens showing a QR code (auto-opens on an available port)
+3. **Scan**: Open WhatsApp on your phone -> Settings -> Linked Devices -> Link a Device -> Scan the QR
+4. **Session saved**: After successful scan, session credentials are stored locally
+5. **Future runs**: The server reconnects automatically using saved credentials - no QR needed
+
+### Session Storage
+
 ```
+~/.config/zappy-mcp/
+  auth/           # WhatsApp session data (shared across all configs)
+```
+
+The auth is stored globally, so you only authenticate once per machine. Different projects can use different permission configs while sharing the same WhatsApp session.
+
+### Re-authenticating
+
+If you need to switch accounts or fix auth issues:
+
+```bash
+rm -rf ~/.config/zappy-mcp/auth
+node src/index.js  # Opens QR code again
+```
+
+### Security Notes
+
+- Session data in `~/.config/zappy-mcp/auth/` grants full access to your WhatsApp - protect it like a password
+- The QR code is only shown locally in your browser, never transmitted
+- Each config file controls which chats the AI can access - use minimal permissions
 
 ## MCP Setup
 
