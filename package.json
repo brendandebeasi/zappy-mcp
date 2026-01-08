@@ -1,0 +1,33 @@
+{
+  "name": "zappy-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for WhatsApp messaging via whatsapp-web.js",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "zappy-mcp": "./src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "whatsapp",
+    "model-context-protocol",
+    "claude",
+    "ai"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "open": "^10.1.0",
+    "qrcode": "^1.5.4",
+    "whatsapp-web.js": "^1.26.0",
+    "zod": "^3.23.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

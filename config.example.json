@@ -1,0 +1,18 @@
+{
+  "allowed": [
+    {
+      "id": "120363295812730408@g.us",
+      "name": "Example Group",
+      "canSend": true,
+      "canRead": true,
+      "canDelete": false
+    },
+    {
+      "id": "14155551234@c.us",
+      "name": "Example Contact",
+      "canSend": true,
+      "canRead": true,
+      "canDelete": true
+    }
+  ]
+}
