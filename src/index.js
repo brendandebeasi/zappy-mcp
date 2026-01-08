@@ -21,6 +21,7 @@ const AUTH_PATH = join(DATA_DIR, 'auth');
 let configPath = null;
 let waClient = null;
 let isReady = false;
+let isInitializing = false;
 let lastQR = null;
 let qrServer = null;
 let allowedRecipients = [];
@@ -252,9 +253,27 @@ function stopQRServer() {
     }
 }
 
-function initWhatsAppClient() {
+async function ensureWhatsAppClient() {
+    // Already ready
+    if (isReady) return true;
+    
+    // Already initializing, wait for it
+    if (isInitializing) {
+        const maxWait = 60000; // 60 seconds max
+        const start = Date.now();
+        while (isInitializing && !isReady && Date.now() - start < maxWait) {
+            await new Promise(r => setTimeout(r, 500));
+        }
+        return isReady;
+    }
+    
+    // Start initialization
+    isInitializing = true;
+    console.error('[Zappy MCP] Initializing WhatsApp client (lazy)...');
+    
     mkdirSync(AUTH_PATH, { recursive: true });
     console.error(`[Zappy MCP] Auth data: ${AUTH_PATH}`);
+    
     waClient = new Client({
         authStrategy: new LocalAuth({
             dataPath: AUTH_PATH
@@ -273,38 +292,47 @@ function initWhatsAppClient() {
         }
     });
 
-    waClient.on('qr', (qr) => {
-        lastQR = qr;
-        console.error('[Zappy MCP] QR code received, opening browser...');
-        startQRServer(qr);
-    });
+    return new Promise((resolve) => {
+        waClient.on('qr', (qr) => {
+            lastQR = qr;
+            console.error('[Zappy MCP] QR code received, opening browser...');
+            startQRServer(qr);
+        });
 
-    waClient.on('authenticated', () => {
-        console.error('[Zappy MCP] Authenticated successfully');
-        lastQR = null;
-    });
+        waClient.on('authenticated', () => {
+            console.error('[Zappy MCP] Authenticated successfully');
+            lastQR = null;
+        });
 
-    waClient.on('auth_failure', (msg) => {
-        console.error('[Zappy MCP] Authentication failed:', msg);
-        isReady = false;
-    });
+        waClient.on('auth_failure', (msg) => {
+            console.error('[Zappy MCP] Authentication failed:', msg);
+            isReady = false;
+            isInitializing = false;
+            resolve(false);
+        });
 
-    waClient.on('ready', async () => {
-        console.error('[Zappy MCP] Client connected, waiting for sync...');
-        lastQR = null;
-        setTimeout(stopQRServer, 3000);
-        await new Promise(r => setTimeout(r, 5000));
-        isReady = true;
-        console.error('[Zappy MCP] Client is ready');
-    });
+        waClient.on('ready', async () => {
+            console.error('[Zappy MCP] Client connected, waiting for sync...');
+            lastQR = null;
+            setTimeout(stopQRServer, 3000);
+            await new Promise(r => setTimeout(r, 5000));
+            isReady = true;
+            isInitializing = false;
+            console.error('[Zappy MCP] Client is ready');
+            resolve(true);
+        });
 
-    waClient.on('disconnected', (reason) => {
-        console.error('[Zappy MCP] Client disconnected:', reason);
-        isReady = false;
-    });
+        waClient.on('disconnected', (reason) => {
+            console.error('[Zappy MCP] Client disconnected:', reason);
+            isReady = false;
+            isInitializing = false;
+        });
 
-    waClient.initialize().catch((err) => {
-        console.error('[Zappy MCP] Failed to initialize:', err.message);
+        waClient.initialize().catch((err) => {
+            console.error('[Zappy MCP] Failed to initialize:', err.message);
+            isInitializing = false;
+            resolve(false);
+        });
     });
 }
 
@@ -327,21 +355,26 @@ async function main() {
 
     server.tool(
         'get_status',
-        'Check WhatsApp client connection status',
+        'Check WhatsApp client connection status. Client initializes lazily on first use.',
         {},
         async () => {
             const status = {
                 connected: isReady,
-                authenticated: waClient !== null && !lastQR,
+                initializing: isInitializing,
+                clientCreated: waClient !== null,
                 pendingQR: lastQR !== null,
                 configPath: configPath || 'none',
                 allowedRecipients: allowedRecipients.length,
                 authPath: AUTH_PATH,
                 message: isReady 
                     ? 'WhatsApp client is connected and ready'
-                    : lastQR 
-                        ? 'Waiting for QR code scan - browser should have opened'
-                        : 'WhatsApp client is not connected'
+                    : isInitializing
+                        ? 'WhatsApp client is initializing...'
+                        : lastQR 
+                            ? 'Waiting for QR code scan - browser should have opened'
+                            : waClient === null
+                                ? 'WhatsApp client not started yet (will init on first tool use)'
+                                : 'WhatsApp client is not connected'
             };
 
             return {
@@ -386,12 +419,13 @@ async function main() {
             groupsOnly: z.boolean().optional().describe('Only show group chats (default: false)')
         },
         async ({ limit = 50, groupsOnly = false }) => {
-            if (!isReady) {
+            const ready = await ensureWhatsAppClient();
+            if (!ready) {
                 return {
                     content: [{
                         type: 'text',
                         text: JSON.stringify({ 
-                            error: 'WhatsApp client is not ready. Check status with get_status tool.' 
+                            error: 'WhatsApp client failed to initialize. Check status with get_status tool.' 
                         })
                     }],
                     isError: true
@@ -452,12 +486,13 @@ async function main() {
             message: z.string().describe('Message text to send')
         },
         async ({ to, message }) => {
-            if (!isReady) {
+            const ready = await ensureWhatsAppClient();
+            if (!ready) {
                 return {
                     content: [{
                         type: 'text',
                         text: JSON.stringify({ 
-                            error: 'WhatsApp client is not ready. Check status with get_status tool.' 
+                            error: 'WhatsApp client failed to initialize. Check status with get_status tool.' 
                         })
                     }],
                     isError: true
@@ -518,12 +553,13 @@ async function main() {
             limit: z.number().optional().describe('Number of messages to fetch (default: 20)')
         },
         async ({ chatId, limit = 20 }) => {
-            if (!isReady) {
+            const ready = await ensureWhatsAppClient();
+            if (!ready) {
                 return {
                     content: [{
                         type: 'text',
                         text: JSON.stringify({ 
-                            error: 'WhatsApp client is not ready. Check status with get_status tool.' 
+                            error: 'WhatsApp client failed to initialize. Check status with get_status tool.' 
                         })
                     }],
                     isError: true
@@ -591,12 +627,13 @@ async function main() {
             forEveryone: z.boolean().optional().describe('Delete for everyone, not just me (default: true)')
         },
         async ({ chatId, messageId, forEveryone = true }) => {
-            if (!isReady) {
+            const ready = await ensureWhatsAppClient();
+            if (!ready) {
                 return {
                     content: [{
                         type: 'text',
                         text: JSON.stringify({ 
-                            error: 'WhatsApp client is not ready. Check status with get_status tool.' 
+                            error: 'WhatsApp client failed to initialize. Check status with get_status tool.' 
                         })
                     }],
                     isError: true
@@ -674,8 +711,6 @@ async function main() {
             }
         }
     );
-
-    initWhatsAppClient();
 
     const transport = new StdioServerTransport();
     await server.connect(transport);
